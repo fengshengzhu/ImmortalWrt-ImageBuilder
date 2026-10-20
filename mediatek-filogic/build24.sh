@@ -53,6 +53,10 @@ PACKAGES="$PACKAGES luci-i18n-firewall-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-package-manager-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-ttyd-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-mwan3-zh-cn"
+PACKAGES="$PACKAGES luci-i18n-homeproxy-zh-cn"
+PACKAGES="$PACKAGES luci-i18n-dae-zh-cn"
+PACKAGES="$PACKAGES luci-i18n-daed-zh-cn"
+PACKAGES="$PACKAGES luci-i18n-passwall-zh-cn"
 
 
 # 第三方软件包 合并
