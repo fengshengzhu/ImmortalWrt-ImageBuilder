@@ -53,7 +53,6 @@ PACKAGES="$PACKAGES luci-i18n-firewall-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-package-manager-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-ttyd-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-mwan3-zh-cn"
-PACKAGES="$PACKAGES luci-i18n-openclash"
 
 
 # 第三方软件包 合并
