@@ -57,9 +57,8 @@ PACKAGES="$PACKAGES luci-i18n-package-manager-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-ttyd-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-filemanager-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-mwan3-zh-cn"
-PACKAGES="$PACKAGES luci-i18n-homeproxy-zh-cn"
 PACKAGES="$PACKAGES luci-i18n-passwall-zh-cn"
-
+PACKAGES="$PACKAGES luci-i18n-wol-zh-cn"
 
 # 第三方软件包 合并
 # ======== shell/custom-packages.sh =======
