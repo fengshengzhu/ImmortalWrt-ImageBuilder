@@ -3,10 +3,7 @@ module("luci.controller.frpc", package.seeall)
 local CONFIG = "frpc"
 
 function index()
-	if not nixio.fs.access("/etc/config/" .. CONFIG) then
-		return
-	end
-
+	-- 不因配置文件缺失而隐藏菜单，便于首次进入页面时排查问题
 	local e = entry({"admin", "services", "frpc"}, firstchild(), _("FRP 内网穿透"), 60)
 	e.dependent = false
 

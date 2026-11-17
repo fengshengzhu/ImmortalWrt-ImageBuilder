@@ -642,6 +642,7 @@ jobs:
             docker run --rm -i \
               --user root \
               -v "${{ github.workspace }}/bin:/home/build/immortalwrt/bin" \
+              -v "${{ github.workspace }}/files:/home/build/immortalwrt/files" \
               -v "${{ github.workspace }}/glinet:/home/build/immortalwrt/files/etc/uci-defaults" \
               -v "${{ github.workspace }}/custom:/home/build/immortalwrt/files/etc/config" \
               -v "${{ github.workspace }}/shell:/home/build/immortalwrt/shell" \
