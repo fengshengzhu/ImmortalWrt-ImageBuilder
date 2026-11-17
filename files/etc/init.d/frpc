@@ -1,7 +1,8 @@
 #!/bin/sh /etc/rc.common
 #
 # frpc init script for OpenWrt (procd)
-# 将 UCI 配置 (/etc/config/frpc) 转换为 frp 0.72 的 TOML 配置并托管进程
+# 将 UCI 配置 (/etc/config/frpc) 转换为 frp 0.72 的 TOML 配置并托管进程。
+# 字段设计与 DESIGN.md 一致，基准为生产环境的 frpc.toml / frps.toml。
 #
 
 START=90
@@ -11,10 +12,11 @@ USE_PROCD=1
 CONFIG_NAME="frpc"
 TOML_DIR="/var/etc/frpc"
 TOML_FILE="${TOML_DIR}/frpc.toml"
+STORE_DIR="${TOML_DIR}"
 
 # ---------- TOML 辅助函数 ----------
 
-# 转义 TOML 基本字符串中的反斜杠与双引号
+# 转义 TOML 基本字符串中的反斜杠与双引号，并去掉 CR
 toml_escape() {
 	printf '%s' "$1" | tr -d '\r' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
@@ -36,6 +38,15 @@ toml_int() {
 	printf '%s = %s\n' "$key" "$value"
 }
 
+# 1/true/yes/on => true；其余 false
+toml_bool() {
+	local key="$1" value="$2"
+	case "$value" in
+		1|true|TRUE|yes|on) printf '%s = true\n' "$key" ;;
+		*) printf '%s = false\n' "$key" ;;
+	esac
+}
+
 # 逗号/分号/空格分隔的字符串 => TOML 字符串数组
 toml_list() {
 	local raw="$1" item out=""
@@ -48,12 +59,51 @@ toml_list() {
 	printf '%s' "$out"
 }
 
-# ---------- 配置生成 ----------
+# 非空时输出 key = ["a", "b"]
+toml_list_line() {
+	local key="$1" raw="$2" list
+	[ -n "$raw" ] || return 0
+	list=$(toml_list "$raw")
+	[ -n "$list" ] || return 0
+	printf '%s = [%s]\n' "$key" "$list"
+}
+
+# ---------- 校验 ----------
+
+# 服务端 allowPorts 白名单：逗号分隔的数字列表。
+# 配置了白名单时，remotePort 必须命中，否则跳过该隧道并记录告警。
+PORT_WHITELIST=""
+
+init_port_whitelist() {
+	local raw="$1" p
+	PORT_WHITELIST=""
+	for p in $(printf '%s' "$raw" | tr ',; ' '   '); do
+		case "$p" in
+			''|*[!0-9]*) continue ;;
+		esac
+		PORT_WHITELIST="${PORT_WHITELIST} ${p}"
+	done
+}
+
+remote_port_allowed() {
+	local port="$1" p
+	[ -n "$PORT_WHITELIST" ] || return 0
+	case "$port" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	for p in $PORT_WHITELIST; do
+		[ "$p" = "$port" ] && return 0
+	done
+	return 1
+}
+
+# ---------- proxies / visitors 生成 ----------
 
 write_proxy() {
 	local section="$1"
 	local enabled name type local_ip local_port remote_port
 	local custom_domains domain subdomain use_encryption use_compression
+	local role secret_key allow_users
 
 	config_get enabled "$section" enabled 1
 	[ "$enabled" = "1" ] || return 0
@@ -61,35 +111,92 @@ write_proxy() {
 	config_get name "$section" name ""
 	[ -n "$name" ] || return 0
 	config_get type "$section" type "tcp"
+
+	config_get remote_port "$section" remote_port ""
+	if [ "$type" = "tcp" ] || [ "$type" = "udp" ]; then
+		if ! remote_port_allowed "$remote_port"; then
+			logger -t frpc "proxy '$name': remotePort '$remote_port' 不在服务端 allowPorts 白名单内，已跳过"
+			return 0
+		fi
+	fi
+
 	config_get local_ip "$section" local_ip "127.0.0.1"
 	config_get local_port "$section" local_port ""
-	config_get remote_port "$section" remote_port ""
 	config_get custom_domains "$section" custom_domains ""
 	config_get domain "$section" domain ""
 	config_get subdomain "$section" subdomain ""
 	config_get use_encryption "$section" use_encryption 0
 	config_get use_compression "$section" use_compression 0
+	config_get role "$section" role "server"
+	config_get secret_key "$section" secret_key ""
+	config_get allow_users "$section" allow_users ""
 
 	{
 		printf '\n[[proxies]]\n'
 		toml_str "name" "$name"
 		toml_str "type" "$type"
-		toml_str "localIP" "$local_ip"
-		[ -n "$local_port" ]  && toml_int "localPort" "$local_port" 0
-		[ -n "$remote_port" ] && toml_int "remotePort" "$remote_port" 0
-		[ -n "$custom_domains" ] && printf 'customDomains = [%s]\n' "$(toml_list "$custom_domains")"
-		toml_str "domain" "$domain"
-		toml_str "subdomain" "$subdomain"
+		case "$type" in
+			tcp|udp)
+				toml_str "localIP" "$local_ip"
+				[ -n "$local_port" ]  && toml_int "localPort" "$local_port" 0
+				[ -n "$remote_port" ] && toml_int "remotePort" "$remote_port" 0
+				;;
+			http|https)
+				toml_str "localIP" "$local_ip"
+				[ -n "$local_port" ] && toml_int "localPort" "$local_port" 0
+				toml_list_line "customDomains" "$custom_domains"
+				toml_str "domain" "$domain"
+				toml_str "subdomain" "$subdomain"
+				;;
+			stcp|xtcp)
+				# 本客户端作为被访问端：role=server，配合 secretKey 与可选的 allowUsers
+				toml_str "role" "$role"
+				toml_str "secretKey" "$secret_key"
+				toml_list_line "allowUsers" "$allow_users"
+				;;
+		esac
 		[ "$use_encryption" = "1" ] && printf 'transport.useEncryption = true\n'
 		[ "$use_compression" = "1" ] && printf 'transport.useCompression = true\n'
 	} >> "$TOML_FILE"
 }
 
+write_visitor() {
+	local section="$1"
+	local enabled name type server_name secret_key bind_addr bind_port
+
+	config_get enabled "$section" enabled 1
+	[ "$enabled" = "1" ] || return 0
+	config_get name "$section" name ""
+	[ -n "$name" ] || return 0
+
+	config_get type "$section" type "stcp"
+	config_get server_name "$section" server_name ""
+	config_get secret_key "$section" secret_key ""
+	config_get bind_addr "$section" bind_addr "127.0.0.1"
+	config_get bind_port "$section" bind_port ""
+
+	{
+		printf '\n[[visitors]]\n'
+		toml_str "name" "$name"
+		toml_str "type" "$type"
+		toml_str "serverName" "$server_name"
+		toml_str "secretKey" "$secret_key"
+		toml_str "bindAddr" "$bind_addr"
+		[ -n "$bind_port" ] && toml_int "bindPort" "$bind_port" 0
+	} >> "$TOML_FILE"
+}
+
+# ---------- 配置生成 ----------
+
 generate_toml() {
-	local enabled server_addr server_port protocol auth_token user log_level
-	local tls_enable use_encryption use_compression
-	local web_enable web_addr web_port web_user web_password
-	local count
+	local enabled server_addr server_port auth_method auth_token auth_scopes user
+	local connect_ip protocol dial_timeout dial_keepalive pool_count
+	local heartbeat_interval heartbeat_timeout tcp_mux tcp_mux_keepalive
+	local tls_enable use_encryption use_compression udp_packet_size
+	local log_to log_level log_max_days log_color
+	local store_enable store_path
+	local web_enable web_addr web_port web_user web_password web_pprof
+	local allowed_ports count
 
 	config_load "$CONFIG_NAME"
 
@@ -100,50 +207,99 @@ generate_toml() {
 	fi
 
 	config_get server_addr common server_addr ""
-	config_get server_port common server_port 7000
-	config_get protocol common protocol "tcp"
-	config_get auth_token common auth_token ""
-	config_get user common user ""
-	config_get log_level common log_level "info"
-	config_get tls_enable common tls_enable 1
-	config_get use_encryption common use_encryption 0
-	config_get use_compression common use_compression 0
-	config_get web_enable common web_enable 0
-	config_get web_addr common web_addr "0.0.0.0"
-	config_get web_port common web_port 7400
-	config_get web_user common web_user ""
-	config_get web_password common web_password ""
-
+	config_get server_port common server_port 26566
 	if [ -z "$server_addr" ]; then
 		logger -t frpc "serverAddr is empty, refusing to start"
 		return 1
 	fi
 
+	config_get auth_method common auth_method "token"
+	config_get auth_token common auth_token ""
+	config_get auth_scopes common auth_additional_scopes "HeartBeats,NewWorkConns"
+	config_get user common user ""
+
+	config_get connect_ip common connect_server_local_ip "0.0.0.0"
+	config_get protocol common protocol "tcp"
+	config_get dial_timeout common dial_server_timeout 10
+	config_get dial_keepalive common dial_server_keepalive 7200
+	config_get pool_count common pool_count 10
+	config_get heartbeat_interval common heartbeat_interval 30
+	config_get heartbeat_timeout common heartbeat_timeout 90
+	config_get tcp_mux common tcp_mux 1
+	config_get tcp_mux_keepalive common tcp_mux_keepalive_interval 60
+	config_get tls_enable common tls_enable 1
+	config_get use_encryption common use_encryption 0
+	config_get use_compression common use_compression 0
+	config_get udp_packet_size common udp_packet_size 1500
+
+	config_get log_to common log_to "console"
+	config_get log_level common log_level "info"
+	config_get log_max_days common log_max_days 7
+	config_get log_color common log_disable_print_color 1
+
+	config_get store_enable common store_enable 0
+	config_get store_path common store_path "${STORE_DIR}/frpc_store.json"
+
+	config_get web_enable common web_enable 0
+	config_get web_addr common web_addr "0.0.0.0"
+	config_get web_port common web_port 7400
+	config_get web_user common web_user ""
+	config_get web_password common web_password ""
+	config_get web_pprof common web_pprof_enable 0
+
+	config_get allowed_ports common allowed_ports "26566,46774,43545,64557,45768,58646,6000,7547"
+	init_port_whitelist "$allowed_ports"
+
 	mkdir -p "$TOML_DIR" || return 1
 
+	# 顶层与点号键（必须位于任何表之前）
 	{
 		toml_str "serverAddr" "$server_addr"
-		toml_int "serverPort" "$server_port" 7000
-		[ "$protocol" = "tcp" ] || toml_str "transport.protocol" "$protocol"
-		toml_str "user" "$user"
+		toml_int "serverPort" "$server_port" 26566
+		toml_str "auth.method" "$auth_method"
 		toml_str "auth.token" "$auth_token"
-		toml_str "log.level" "$log_level"
-		[ "$tls_enable" = "1" ] && printf 'transport.tls.enable = true\n'
+		toml_list_line "auth.additionalScopes" "$auth_scopes"
+		toml_str "user" "$user"
+		toml_str "transport.connectServerLocalIP" "$connect_ip"
+		[ "$protocol" = "tcp" ] || toml_str "transport.protocol" "$protocol"
+		toml_int "transport.dialServerTimeout" "$dial_timeout" 10
+		toml_int "transport.dialServerKeepalive" "$dial_keepalive" 7200
+		toml_int "transport.poolCount" "$pool_count" 10
+		toml_int "transport.heartbeatInterval" "$heartbeat_interval" 30
+		toml_int "transport.heartbeatTimeout" "$heartbeat_timeout" 90
+		toml_bool "transport.tcpMux" "$tcp_mux"
+		toml_int "transport.tcpMuxKeepaliveInterval" "$tcp_mux_keepalive" 60
+		toml_bool "transport.tls.enable" "$tls_enable"
 		[ "$use_encryption" = "1" ] && printf 'transport.useEncryption = true\n'
 		[ "$use_compression" = "1" ] && printf 'transport.useCompression = true\n'
+		toml_int "udpPacketSize" "$udp_packet_size" 1500
+		toml_str "log.to" "$log_to"
+		toml_str "log.level" "$log_level"
+		toml_int "log.maxDays" "$log_max_days" 7
+		toml_bool "log.disablePrintColor" "$log_color"
 		if [ "$web_enable" = "1" ]; then
 			toml_str "webServer.addr" "$web_addr"
 			toml_int "webServer.port" "$web_port" 7400
 			toml_str "webServer.user" "$web_user"
 			toml_str "webServer.password" "$web_password"
+			toml_bool "webServer.pprofEnable" "$web_pprof"
 		fi
 	} > "$TOML_FILE" || return 1
 
 	config_foreach write_proxy proxy
+	config_foreach write_visitor visitor
+
+	# [store] 必须是最后一个表，之后不能再出现顶层键
+	if [ "$store_enable" = "1" ]; then
+		{
+			printf '\n[store]\n'
+			toml_str "path" "$store_path"
+		} >> "$TOML_FILE"
+	fi
 
 	count=$(grep -c '^\[\[proxies\]\]' "$TOML_FILE" 2>/dev/null)
 	[ -n "$count" ] || count=0
-	logger -t frpc "generated $TOML_FILE ($count proxies)"
+	logger -t frpc "generated $TOML_FILE ($count proxies, whitelist=${allowed_ports:-off})"
 	return 0
 }
 
@@ -167,6 +323,5 @@ reload_service() {
 }
 
 service_triggers() {
-	# LuCI 保存配置后会调用 reload_config，procd 据此自动重启 frpc
 	procd_add_reload_trigger "$CONFIG_NAME"
 }

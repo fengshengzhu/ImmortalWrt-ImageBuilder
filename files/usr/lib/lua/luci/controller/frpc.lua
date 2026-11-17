@@ -21,7 +21,11 @@ function action_status_json()
 
 	data.running  = (sys.call("pidof frpc >/dev/null 2>&1") == 0)
 	data.enabled  = uci:get(CONFIG, "common", "enabled") or "0"
-	data.server   = uci:get(CONFIG, "common", "server_addr") or ""
+	local addr    = uci:get(CONFIG, "common", "server_addr") or ""
+	local port    = uci:get(CONFIG, "common", "server_port") or ""
+	data.server   = (addr ~= "" and port ~= "") and (addr .. ":" .. port) or addr
+	data.tls      = uci:get(CONFIG, "common", "tls_enable") or "0"
+	data.scopes   = uci:get(CONFIG, "common", "auth_additional_scopes") or ""
 
 	local enabled_proxies = 0
 	uci:foreach(CONFIG, "proxy", function(s)
@@ -30,6 +34,14 @@ function action_status_json()
 		end
 	end)
 	data.proxies = enabled_proxies
+
+	local enabled_visitors = 0
+	uci:foreach(CONFIG, "visitor", function(s)
+		if s.enabled == "1" then
+			enabled_visitors = enabled_visitors + 1
+		end
+	end)
+	data.visitors = enabled_visitors
 
 	local f = io.open("/var/etc/frpc/frpc.toml", "r")
 	data.config = ""

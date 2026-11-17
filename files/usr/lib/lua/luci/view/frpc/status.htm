@@ -11,12 +11,16 @@
 				<td><span id="frpc_status">-</span></td>
 			</tr>
 			<tr>
-				<td><%:服务端地址%></td>
+				<td><%:服务端%></td>
 				<td><span id="frpc_server">-</span></td>
 			</tr>
 			<tr>
-				<td><%:已启用隧道数%></td>
-				<td><span id="frpc_proxies">-</span></td>
+				<td><%:TLS / 鉴权范围%></td>
+				<td><span id="frpc_auth">-</span></td>
+			</tr>
+			<tr>
+				<td><%:已启用隧道 / 访问端%></td>
+				<td><span id="frpc_counts">-</span></td>
 			</tr>
 		</table>
 		<p style="margin-top:12px">
@@ -61,7 +65,9 @@ function frpcRefresh() {
 				: '<b style="color:#c5221f"><%:未运行%></b>';
 		}
 		frpcText('frpc_server',  data.server  || '-');
-		frpcText('frpc_proxies', data.proxies);
+		var tls = (data.tls === '1') ? '<%:开启%>' : '<%:关闭%>';
+		frpcText('frpc_auth',    tls + ' / ' + (data.scopes || '-'));
+		frpcText('frpc_counts',  (data.proxies || 0) + ' / ' + (data.visitors || 0));
 		frpcText('frpc_config',  data.config || '<%:尚未生成配置，请先到「参数设置」填写服务端地址%>');
 		frpcText('frpc_log',     data.log    || '<%:暂无日志%>');
 	});
