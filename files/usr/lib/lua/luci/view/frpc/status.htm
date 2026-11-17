@@ -1,0 +1,82 @@
+<%+header%>
+
+<div class="cbi-map">
+	<h2 name="content"><%:FRP 运行状态%></h2>
+
+	<fieldset class="cbi-section">
+		<legend><%:概览%></legend>
+		<table width="100%" cellspacing="8">
+			<tr>
+				<td width="22%"><%:运行状态%></td>
+				<td><span id="frpc_status">-</span></td>
+			</tr>
+			<tr>
+				<td><%:服务端地址%></td>
+				<td><span id="frpc_server">-</span></td>
+			</tr>
+			<tr>
+				<td><%:已启用隧道数%></td>
+				<td><span id="frpc_proxies">-</span></td>
+			</tr>
+		</table>
+		<p style="margin-top:12px">
+			<input type="button" class="btn" value="<%:启动%>" onclick="frpcControl('start')" />
+			<input type="button" class="btn" value="<%:停止%>" onclick="frpcControl('stop')" />
+			<input type="button" class="btn" value="<%:重启%>" onclick="frpcControl('restart')" />
+			<input type="button" class="btn" value="<%:刷新%>" onclick="frpcRefresh()" />
+			<span id="frpc_msg" style="margin-left:8px;color:#444"></span>
+		</p>
+	</fieldset>
+
+	<fieldset class="cbi-section">
+		<legend><%:生成的 TOML 配置%> <small>(/var/etc/frpc/frpc.toml)</small></legend>
+		<pre id="frpc_config" style="white-space:pre-wrap;word-break:break-all;font-family:monospace;margin:0">-</pre>
+	</fieldset>
+
+	<fieldset class="cbi-section">
+		<legend><%:最近日志%></legend>
+		<pre id="frpc_log" style="white-space:pre-wrap;word-break:break-all;font-family:monospace;max-height:260px;overflow:auto;margin:0">-</pre>
+	</fieldset>
+</div>
+
+<script type="text/javascript">
+//<![CDATA[
+var frpcBase = '<%=luci.dispatcher.build_url("admin/services/frpc")%>';
+
+function frpcText(id, value) {
+	var el = document.getElementById(id);
+	if (el) el.textContent = (value === null || value === undefined) ? '' : String(value);
+}
+
+function frpcRefresh() {
+	XHR.get(frpcBase + '/status_json', null, function(x, data) {
+		if (!data) {
+			frpcText('frpc_status', '<%:请求失败%>');
+			return;
+		}
+		var el = document.getElementById('frpc_status');
+		if (el) {
+			el.innerHTML = data.running
+				? '<b style="color:#137333"><%:运行中%></b>'
+				: '<b style="color:#c5221f"><%:未运行%></b>';
+		}
+		frpcText('frpc_server',  data.server  || '-');
+		frpcText('frpc_proxies', data.proxies);
+		frpcText('frpc_config',  data.config || '<%:尚未生成配置，请先到「参数设置」填写服务端地址%>');
+		frpcText('frpc_log',     data.log    || '<%:暂无日志%>');
+	});
+}
+
+function frpcControl(cmd) {
+	XHR.get(frpcBase + '/control', { cmd: cmd }, function(x, data) {
+		frpcText('frpc_msg', data && data.msg ? data.msg : '');
+		frpcRefresh();
+	});
+}
+
+frpcRefresh();
+setInterval(frpcRefresh, 15000);
+//]]>
+</script>
+
+<%+footer%>

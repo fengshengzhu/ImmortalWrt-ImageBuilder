@@ -1,0 +1,172 @@
+#!/bin/sh /etc/rc.common
+#
+# frpc init script for OpenWrt (procd)
+# 将 UCI 配置 (/etc/config/frpc) 转换为 frp 0.72 的 TOML 配置并托管进程
+#
+
+START=90
+STOP=10
+USE_PROCD=1
+
+CONFIG_NAME="frpc"
+TOML_DIR="/var/etc/frpc"
+TOML_FILE="${TOML_DIR}/frpc.toml"
+
+# ---------- TOML 辅助函数 ----------
+
+# 转义 TOML 基本字符串中的反斜杠与双引号
+toml_escape() {
+	printf '%s' "$1" | tr -d '\r' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+# 非空时输出 key = "value"
+toml_str() {
+	local key="$1" value="$2"
+	[ -n "$value" ] || return 0
+	printf '%s = "%s"\n' "$key" "$(toml_escape "$value")"
+}
+
+# 仅接受数字，否则回退到默认值
+toml_int() {
+	local key="$1" value="$2" fallback="$3"
+	[ -n "$value" ] || value="$fallback"
+	case "$value" in
+		*[!0-9]*) value="$fallback" ;;
+	esac
+	printf '%s = %s\n' "$key" "$value"
+}
+
+# 逗号/分号/空格分隔的字符串 => TOML 字符串数组
+toml_list() {
+	local raw="$1" item out=""
+	raw=$(printf '%s' "$raw" | tr ',;' '  ')
+	for item in $raw; do
+		[ -n "$item" ] || continue
+		[ -n "$out" ] && out="$out, "
+		out="${out}\"$(toml_escape "$item")\""
+	done
+	printf '%s' "$out"
+}
+
+# ---------- 配置生成 ----------
+
+write_proxy() {
+	local section="$1"
+	local enabled name type local_ip local_port remote_port
+	local custom_domains domain subdomain use_encryption use_compression
+
+	config_get enabled "$section" enabled 1
+	[ "$enabled" = "1" ] || return 0
+
+	config_get name "$section" name ""
+	[ -n "$name" ] || return 0
+	config_get type "$section" type "tcp"
+	config_get local_ip "$section" local_ip "127.0.0.1"
+	config_get local_port "$section" local_port ""
+	config_get remote_port "$section" remote_port ""
+	config_get custom_domains "$section" custom_domains ""
+	config_get domain "$section" domain ""
+	config_get subdomain "$section" subdomain ""
+	config_get use_encryption "$section" use_encryption 0
+	config_get use_compression "$section" use_compression 0
+
+	{
+		printf '\n[[proxies]]\n'
+		toml_str "name" "$name"
+		toml_str "type" "$type"
+		toml_str "localIP" "$local_ip"
+		[ -n "$local_port" ]  && toml_int "localPort" "$local_port" 0
+		[ -n "$remote_port" ] && toml_int "remotePort" "$remote_port" 0
+		[ -n "$custom_domains" ] && printf 'customDomains = [%s]\n' "$(toml_list "$custom_domains")"
+		toml_str "domain" "$domain"
+		toml_str "subdomain" "$subdomain"
+		[ "$use_encryption" = "1" ] && printf 'transport.useEncryption = true\n'
+		[ "$use_compression" = "1" ] && printf 'transport.useCompression = true\n'
+	} >> "$TOML_FILE"
+}
+
+generate_toml() {
+	local enabled server_addr server_port protocol auth_token user log_level
+	local tls_enable use_encryption use_compression
+	local web_enable web_addr web_port web_user web_password
+	local count
+
+	config_load "$CONFIG_NAME"
+
+	config_get enabled common enabled 1
+	if [ "$enabled" != "1" ]; then
+		logger -t frpc "disabled by UCI config"
+		return 1
+	fi
+
+	config_get server_addr common server_addr ""
+	config_get server_port common server_port 7000
+	config_get protocol common protocol "tcp"
+	config_get auth_token common auth_token ""
+	config_get user common user ""
+	config_get log_level common log_level "info"
+	config_get tls_enable common tls_enable 1
+	config_get use_encryption common use_encryption 0
+	config_get use_compression common use_compression 0
+	config_get web_enable common web_enable 0
+	config_get web_addr common web_addr "0.0.0.0"
+	config_get web_port common web_port 7400
+	config_get web_user common web_user ""
+	config_get web_password common web_password ""
+
+	if [ -z "$server_addr" ]; then
+		logger -t frpc "serverAddr is empty, refusing to start"
+		return 1
+	fi
+
+	mkdir -p "$TOML_DIR" || return 1
+
+	{
+		toml_str "serverAddr" "$server_addr"
+		toml_int "serverPort" "$server_port" 7000
+		[ "$protocol" = "tcp" ] || toml_str "transport.protocol" "$protocol"
+		toml_str "user" "$user"
+		toml_str "auth.token" "$auth_token"
+		toml_str "log.level" "$log_level"
+		[ "$tls_enable" = "1" ] && printf 'transport.tls.enable = true\n'
+		[ "$use_encryption" = "1" ] && printf 'transport.useEncryption = true\n'
+		[ "$use_compression" = "1" ] && printf 'transport.useCompression = true\n'
+		if [ "$web_enable" = "1" ]; then
+			toml_str "webServer.addr" "$web_addr"
+			toml_int "webServer.port" "$web_port" 7400
+			toml_str "webServer.user" "$web_user"
+			toml_str "webServer.password" "$web_password"
+		fi
+	} > "$TOML_FILE" || return 1
+
+	config_foreach write_proxy proxy
+
+	count=$(grep -c '^\[\[proxies\]\]' "$TOML_FILE" 2>/dev/null)
+	[ -n "$count" ] || count=0
+	logger -t frpc "generated $TOML_FILE ($count proxies)"
+	return 0
+}
+
+# ---------- procd 钩子 ----------
+
+start_service() {
+	generate_toml || return 1
+
+	procd_open_instance
+	procd_set_param command /usr/bin/frpc -c "$TOML_FILE"
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param term_timeout 10
+	procd_close_instance
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	# LuCI 保存配置后会调用 reload_config，procd 据此自动重启 frpc
+	procd_add_reload_trigger "$CONFIG_NAME"
+}
