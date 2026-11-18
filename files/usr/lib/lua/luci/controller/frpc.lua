@@ -7,8 +7,16 @@ function index()
 	local e = entry({"admin", "services", "frpc"}, firstchild(), _("FRP 内网穿透"), 60)
 	e.dependent = false
 
-	entry({"admin", "services", "frpc", "settings"}, cbi("frpc"), _("参数设置"), 1)
-	entry({"admin", "services", "frpc", "status"}, template("frpc/status"), _("运行状态"), 2).leaf = true
+	-- 7 个配置分页：LuCI 主题据此在页面顶部原生渲染标签栏（与系统其它页面一致）。
+	-- 每个入口指向同一个 CBI model，model 内部按 URL 末段只渲染对应区块。
+	entry({"admin", "services", "frpc", "settings"},  cbi("frpc"), _("服务器与认证"), 1)
+	entry({"admin", "services", "frpc", "transport"}, cbi("frpc"), _("传输层"), 2)
+	entry({"admin", "services", "frpc", "log"},       cbi("frpc"), _("日志"), 3)
+	entry({"admin", "services", "frpc", "web"},       cbi("frpc"), _("客户端面板"), 4)
+	entry({"admin", "services", "frpc", "store"},     cbi("frpc"), _("状态存储"), 5)
+	entry({"admin", "services", "frpc", "proxies"},   cbi("frpc"), _("隧道规则"), 6)
+	entry({"admin", "services", "frpc", "visitors"},  cbi("frpc"), _("访问端配置"), 7)
+	entry({"admin", "services", "frpc", "status"}, template("frpc/status"), _("运行状态"), 8).leaf = true
 
 	entry({"admin", "services", "frpc", "status_json"}, call("action_status_json")).leaf = true
 	entry({"admin", "services", "frpc", "control"}, call("action_control")).leaf = true
