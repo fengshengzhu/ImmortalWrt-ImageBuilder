@@ -70,11 +70,14 @@ function action_status_json()
 		end
 	end
 
-	-- 展示用 TOML 必须对密钥脱敏，页面只读也不该明文摊开 auth.token / web password
+	-- 展示用 TOML 必须对密钥脱敏，页面只读也不该明文摊开 auth.token / web password。
+	-- 注意：TOML 值里的引号会被 toml_escape 转义为 \"，若用 [^\"]* 会在转义引号处
+	-- 提前截断，导致后半段密钥泄露。TOML 字符串不跨行，故用 [^\n]* 贪婪匹配到
+	-- 行内最后一个引号，把整段值一次替换掉。
 	data.config = raw_config
-	data.config = data.config:gsub("(auth%.token%s*=%s*\")[^\"]*(\")", "%1******%2")
-	data.config = data.config:gsub("(webServer%.password%s*=%s*\")[^\"]*(\")", "%1******%2")
-	data.config = data.config:gsub("(secretKey%s*=%s*\")[^\"]*(\")", "%1******%2")
+	data.config = data.config:gsub("(auth%.token%s*=%s*\")[^\n]*(\")", "%1******%2")
+	data.config = data.config:gsub("(webServer%.password%s*=%s*\")[^\n]*(\")", "%1******%2")
+	data.config = data.config:gsub("(secretKey%s*=%s*\")[^\n]*(\")", "%1******%2")
 
 	luci.http.prepare_content("application/json")
 	luci.http.write_json(data)
@@ -83,8 +86,38 @@ end
 function action_control()
 	-- 每个 CGI 请求是独立进程，必须自行 require；只依赖 status_json 里
 	-- 的 require 会在此处得到 nil（luci.sys is nil），接口返回 500，前端“没反应”。
-	local sys = require "luci.sys"
-	local cmd = luci.http.formvalue("cmd")
+	local sys  = require "luci.sys"
+	local http = luci.http
+	local cmd  = http.formvalue("cmd")
+
+	-- CSRF 防护（只依赖 luci.http，兼容本固件的 ucode 桥接层）：
+	--   1) 拒绝非 POST 请求，挡住 <img>/<a> 之类的 GET 型 CSRF；
+	--   2) 请求回传的 sessionid 必须与 cookie 中的一致（double-submit），
+	--      跨站脚本读不到本站 cookie，无法伪造该参数。
+	-- 两项均用 pcall 保护：万一某环境取不到 REQUEST_METHOD / cookie，则降级放行，
+	-- 避免正常按钮被误伤（本固件曾因 _() 缺失导致 500，吸取教训）。
+	local function reject(msg)
+		http.prepare_content("application/json")
+		http.write_json({ ok = false, msg = msg })
+	end
+
+	local method = nil
+	pcall(function() method = http.getenv("REQUEST_METHOD") end)
+	if method and method ~= "POST" then
+		reject("已拒绝：控制操作仅允许 POST 请求")
+		return
+	end
+
+	local form_sid = http.formvalue("sessionid") or ""
+	if form_sid ~= "" then
+		local cookie_sid = nil
+		pcall(function() cookie_sid = http.getcookie("sessionid") end)
+		if cookie_sid and cookie_sid ~= "" and cookie_sid ~= form_sid then
+			reject("已拒绝：会话校验失败，请刷新页面重试")
+			return
+		end
+	end
+
 	-- 注意：本固件 dispatcher 走 ucode 桥接，call() 入口的函数环境里没有 _()
 	-- 翻译全局（status_json 不用它所以正常）。此处一律用中文常量，避免 500。
 	local ok, msg, rc = false, "未知操作", nil

@@ -65,6 +65,10 @@ o = s:taboption("settings", Value, "user", "用户标识", "可选，用于在�
 
 o = s:taboption("settings", Value, "allowed_ports", "远端端口白名单",
 	"对应 frps 的 allowPorts；remotePort 不在表内将被跳过。留空则不校验")
+-- 必须有 default：否则 uci delete 该 option 后 UI 显示为空、保存写空值，
+-- 导致白名单校验被静默关闭（init 的 config_get 默认值只在 option 完全不存在时生效，
+-- 而 CBI 保存会写入空字符串覆盖它）。
+o.default = "26566,46774,43545,64557,45768,58646,6000,7547"
 o.placeholder = "26566,46774,43545,64557,45768,58646,6000,7547"
 
 -- ---------- 传输层 ----------

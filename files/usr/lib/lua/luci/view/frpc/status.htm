@@ -48,6 +48,8 @@
 <script type="text/javascript">
 //<![CDATA[
 var frpcBase = '<%=luci.dispatcher.build_url("admin/services/frpc")%>';
+// 控制接口带会话标识做 double-submit 校验，抵御 CSRF；与后端 action_control 配对。
+var frpcSid  = (typeof L !== 'undefined' && L.env && L.env.sessionid) ? L.env.sessionid : '';
 
 function frpcText(id, value) {
 	var el = document.getElementById(id);
@@ -113,7 +115,8 @@ function frpcRefresh() {
 
 function frpcControl(cmd) {
 	frpcText('frpc_msg', '<%:正在执行%> ' + cmd + ' ...');
-	XHR.get(frpcBase + '/control', { cmd: cmd }, function(x, data) {
+	// 改用 POST 并回传 sessionid：GET 型请求可被第三方页面 <img> 等触发，不安全。
+	XHR.post(frpcBase + '/control', { cmd: cmd, sessionid: frpcSid }, function(x, data) {
 		var msg = document.getElementById('frpc_msg');
 		var ok  = data && data.ok;
 		var text = (data && data.msg) ? data.msg

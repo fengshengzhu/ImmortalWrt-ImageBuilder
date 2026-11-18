@@ -28,13 +28,27 @@ toml_str() {
 	printf '%s = "%s"\n' "$key" "$(toml_escape "$value")"
 }
 
-# 仅接受数字，否则回退到默认值
+# 仅接受数字，否则回退到默认值；可选 min/max 做范围校验，超界同样回退。
+# 用法：toml_int key value fallback [min] [max]
 toml_int() {
-	local key="$1" value="$2" fallback="$3"
+	local key="$1" value="$2" fallback="$3" min="${4:-}" max="${5:-}"
 	[ -n "$value" ] || value="$fallback"
 	case "$value" in
-		*[!0-9]*) value="$fallback" ;;
+		''|*[!0-9]*) value="$fallback" ;;
 	esac
+	[ -n "$min" ] && [ "$value" -lt "$min" ] 2>/dev/null && value="$fallback"
+	[ -n "$max" ] && [ "$value" -gt "$max" ] 2>/dev/null && value="$fallback"
+	printf '%s = %s\n' "$key" "$value"
+}
+
+# 必填端口：仅接受 1-65535 的十进制整数，非法/超界则不输出该行。
+# 对这些字段没有安全默认值，写 0 反而会让 frpc 报错，故直接跳过由 frpc 提示缺失。
+toml_port() {
+	local key="$1" value="$2"
+	case "$value" in
+		''|*[!0-9]*) return 0 ;;
+	esac
+	[ "$value" -ge 1 ] 2>/dev/null && [ "$value" -le 65535 ] 2>/dev/null || return 0
 	printf '%s = %s\n' "$key" "$value"
 }
 
@@ -137,12 +151,12 @@ write_proxy() {
 		case "$type" in
 			tcp|udp)
 				toml_str "localIP" "$local_ip"
-				[ -n "$local_port" ]  && toml_int "localPort" "$local_port" 0
-				[ -n "$remote_port" ] && toml_int "remotePort" "$remote_port" 0
+				toml_port "localPort" "$local_port"
+				toml_port "remotePort" "$remote_port"
 				;;
 			http|https)
 				toml_str "localIP" "$local_ip"
-				[ -n "$local_port" ] && toml_int "localPort" "$local_port" 0
+				toml_port "localPort" "$local_port"
 				toml_list_line "customDomains" "$custom_domains"
 				toml_str "domain" "$domain"
 				toml_str "subdomain" "$subdomain"
@@ -151,7 +165,7 @@ write_proxy() {
 				# 被访问端：暴露本地服务，配合 secretKey 与可选的 allowUsers。
 				# 访问端请用 [[visitors]]；frp 0.72 的 [[proxies]] 无 role 字段。
 				toml_str "localIP" "$local_ip"
-				[ -n "$local_port" ] && toml_int "localPort" "$local_port" 0
+				toml_port "localPort" "$local_port"
 				toml_str "secretKey" "$secret_key"
 				toml_list_line "allowUsers" "$allow_users"
 				;;
@@ -183,7 +197,7 @@ write_visitor() {
 		toml_str "serverName" "$server_name"
 		toml_str "secretKey" "$secret_key"
 		toml_str "bindAddr" "$bind_addr"
-		[ -n "$bind_port" ] && toml_int "bindPort" "$bind_port" 0
+		toml_port "bindPort" "$bind_port"
 	} >> "$TOML_FILE"
 }
 
@@ -256,31 +270,31 @@ generate_toml() {
 	# 顶层与点号键（必须位于任何表之前）
 	{
 		toml_str "serverAddr" "$server_addr"
-		toml_int "serverPort" "$server_port" 26566
+		toml_int "serverPort" "$server_port" 26566 1 65535
 		toml_str "auth.method" "$auth_method"
 		toml_str "auth.token" "$auth_token"
 		toml_list_line "auth.additionalScopes" "$auth_scopes"
 		toml_str "user" "$user"
 		toml_str "transport.connectServerLocalIP" "$connect_ip"
 		[ "$protocol" = "tcp" ] || toml_str "transport.protocol" "$protocol"
-		toml_int "transport.dialServerTimeout" "$dial_timeout" 10
-		toml_int "transport.dialServerKeepalive" "$dial_keepalive" 7200
-		toml_int "transport.poolCount" "$pool_count" 10
-		toml_int "transport.heartbeatInterval" "$heartbeat_interval" 30
-		toml_int "transport.heartbeatTimeout" "$heartbeat_timeout" 90
+		toml_int "transport.dialServerTimeout" "$dial_timeout" 10 1 86400
+		toml_int "transport.dialServerKeepalive" "$dial_keepalive" 7200 1 86400
+		toml_int "transport.poolCount" "$pool_count" 10 1 65535
+		toml_int "transport.heartbeatInterval" "$heartbeat_interval" 30 1 86400
+		toml_int "transport.heartbeatTimeout" "$heartbeat_timeout" 90 1 86400
 		toml_bool "transport.tcpMux" "$tcp_mux"
-		toml_int "transport.tcpMuxKeepaliveInterval" "$tcp_mux_keepalive" 60
+		toml_int "transport.tcpMuxKeepaliveInterval" "$tcp_mux_keepalive" 60 1 86400
 		toml_bool "transport.tls.enable" "$tls_enable"
 		[ "$use_encryption" = "1" ] && printf 'transport.useEncryption = true\n'
 		[ "$use_compression" = "1" ] && printf 'transport.useCompression = true\n'
-		toml_int "udpPacketSize" "$udp_packet_size" 1500
+		toml_int "udpPacketSize" "$udp_packet_size" 1500 1 65535
 		toml_str "log.to" "$log_to"
 		toml_str "log.level" "$log_level"
-		toml_int "log.maxDays" "$log_max_days" 7
+		toml_int "log.maxDays" "$log_max_days" 7 1 3650
 		toml_bool "log.disablePrintColor" "$log_color"
 		if [ "$web_enable" = "1" ]; then
 			toml_str "webServer.addr" "$web_addr"
-			toml_int "webServer.port" "$web_port" 7400
+			toml_int "webServer.port" "$web_port" 7400 1 65535
 			toml_str "webServer.user" "$web_user"
 			toml_str "webServer.password" "$web_password"
 			toml_bool "webServer.pprofEnable" "$web_pprof"
