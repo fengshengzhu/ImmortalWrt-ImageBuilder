@@ -7,11 +7,13 @@ function index()
 		return
 	end
 
-	-- 单一配置页面：所有配置区块集中在同一个 CBI 页面内，标签栏由
-	-- section:tab() 在「基本配置」区块内渲染（与「系统 → 系统」页观感一致）。
-	-- 不再由 controller 生成贴在顶部的子页面标签栏。
-	local e = entry({"admin", "services", "frpc"}, cbi("frpc"), _("FRP 内网穿透"), 60)
+	-- 顶部只保留两个原生子页面标签：「参数设置」（配置页，内部再用 section 内标签）
+	-- 与「运行状态」（概览 / 生成的 TOML / 最近日志独立页）。
+	local e = entry({"admin", "services", "frpc"}, firstchild(), _("FRP 内网穿透"), 60)
 	e.dependent = false
+
+	entry({"admin", "services", "frpc", "settings"}, cbi("frpc"), _("参数设置"), 1)
+	entry({"admin", "services", "frpc", "status"}, template("frpc/status"), _("运行状态"), 9).leaf = true
 
 	entry({"admin", "services", "frpc", "status_json"}, call("action_status_json")).leaf = true
 	entry({"admin", "services", "frpc", "control"}, call("action_control")).leaf = true

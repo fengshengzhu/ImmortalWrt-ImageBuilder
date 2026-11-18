@@ -1,8 +1,8 @@
 local m, s, o
 
--- 系统设置页风格：一个 CBI 页面，配置字段集中在「基本配置」区块内，
+-- 系统设置页风格：配置字段集中在「基本配置」区块内，
 -- 由 section:tab() / taboption() 在内容区渲染标签栏（不是 controller 顶部子页面）。
--- 隧道规则、访问端配置、运行状态作为同一页面下方的独立区块。
+-- 隧道规则、访问端配置作为同页下方区块；运行状态独立成「运行状态」标签页。
 
 -- 表格通用样式：列头不换行、输入框不被压扁，列多时可横向滚动。
 -- style 标签经 Map 描述以 innerHTML 插入会生效（script 不会），且不影响提交。
@@ -20,7 +20,8 @@ m = Map("frpc", "FRP 内网穿透",
 	css ..
 	"字段以生产 <code>frpc.toml</code> / <code>frps.toml</code> 为基准（frp 0.72.x）。" ..
 	"服务端端口、Token、<code>additionalScopes</code>、TLS 须与 frps 一致，否则连接会被拒绝。<br />" ..
-	"在「基本配置」区块的标签中切换各配置项；隧道规则、访问端配置与运行状态位于本页下方。")
+	"在「基本配置」区块的标签中切换各配置项；隧道规则与访问端配置位于本页下方，" ..
+	"运行状态（概览 / TOML / 日志）请切换到页面顶部的「运行状态」标签。")
 
 -- ==================== 基本配置（section 内标签页） ====================
 s = m:section(NamedSection, "common", "common", "基本配置")
@@ -288,9 +289,5 @@ o.default = "127.0.0.1"
 
 o = s:option(Value, "bind_port", "本地监听端口")
 o.datatype = "port"
-
--- ==================== 运行状态（内嵌模板） ====================
-s = m:section(SimpleSection)
-s.template = "frpc/status"
 
 return m

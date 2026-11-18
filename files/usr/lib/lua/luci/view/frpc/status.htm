@@ -1,5 +1,10 @@
-<fieldset class="cbi-section">
-	<legend><%:概览%></legend>
+<%+header%>
+
+<div class="cbi-map">
+	<h2 name="content"><%:FRP 运行状态%></h2>
+
+	<fieldset class="cbi-section">
+		<legend><%:概览%></legend>
 	<table width="100%" cellspacing="8">
 		<tr>
 			<td width="22%"><%:运行状态%></td>
@@ -37,6 +42,8 @@
 	<legend><%:最近日志%></legend>
 	<pre id="frpc_log" style="white-space:pre-wrap;word-break:break-all;font-family:monospace;max-height:260px;overflow:auto;margin:0">-</pre>
 </fieldset>
+
+</div>
 
 <script type="text/javascript">
 //<![CDATA[
@@ -123,3 +130,5 @@ frpcRefresh();
 setInterval(frpcRefresh, 15000);
 //]]>
 </script>
+
+<%+footer%>
