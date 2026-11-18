@@ -1,8 +1,29 @@
 local m, s, o
 
+-- 布局样式注入在 Map 描述中（LuCI 不过滤描述 HTML），不改动官方 CBI 模板，
+-- 因此保存 / 应用等逻辑完全保持原生行为。
+local layout = [[
+<style type="text/css">
+/* 基础配置区两栏；状态存储 / 两个表格 / 操作栏整行 */
+#cbi-frpc { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; align-items:start; }
+#cbi-frpc>h2, #cbi-frpc>.cbi-map-descr, #cbi-frpc>.cbi-page-actions,
+#cbi-frpc>fieldset.cbi-section:nth-of-type(n+5),
+#cbi-frpc>fieldset:has(table.cbi-section-table) { grid-column:1/-1; }
+#cbi-frpc>fieldset.cbi-section { margin-bottom:0; overflow-x:auto; }
+@media(max-width:1024px){ #cbi-frpc{ grid-template-columns:1fr; } }
+/* 表格：列头不换行，窄屏靠 fieldset 横向滚动，列不被压扁 */
+#cbi-frpc table.cbi-section-table { width:100%; min-width:900px; }
+#cbi-frpc table.cbi-section-table th { white-space:nowrap; vertical-align:top; }
+#cbi-frpc table.cbi-section-table td input[type=text],
+#cbi-frpc table.cbi-section-table td select { min-width:76px; }
+</style>
+]]
+
 m = Map("frpc", "FRP 内网穿透 - 参数设置",
+	layout ..
 	"字段以生产 <code>frpc.toml</code> / <code>frps.toml</code> 为基准（frp 0.72.x）。<br />" ..
-	"服务端端口、Token、<code>additionalScopes</code>、TLS 须与 frps 一致，否则连接会被拒绝。")
+	"服务端端口、Token、<code>additionalScopes</code>、TLS 须与 frps 一致，否则连接会被拒绝。<br />" ..
+	"基础配置分两栏显示；各表格字段说明见表格上方，列较多时可横向滚动。")
 
 -- ==================== 服务器与认证 ====================
 s = m:section(NamedSection, "common", "common", "服务器与认证")
@@ -76,7 +97,7 @@ o = s:option(Value, "heartbeat_timeout", "心跳超时(秒)", "transport.heartbe
 o.default = "90"
 o.datatype = "uinteger"
 
-o = s:option(Flag, "tcp_mux", "启用 TCP 多路复用", "transport.tcpMux，须与 frps 一致")
+o = s:option(Flag, "tcp_mux", "TCP 多路复用", "transport.tcpMux，须与 frps 一致")
 o.default = "1"
 
 o = s:option(Value, "tcp_mux_keepalive_interval", "多路复用保活(秒)", "transport.tcpMuxKeepaliveInterval")
@@ -121,18 +142,6 @@ o.datatype = "uinteger"
 o = s:option(Flag, "log_disable_print_color", "禁用颜色", "log.disablePrintColor")
 o.default = "1"
 
--- ==================== 状态存储 ====================
-s = m:section(NamedSection, "common", "common", "状态存储")
-s.addremove = false
-s.anonymous = false
-
-o = s:option(Flag, "store_enable", "启用状态存储", "仅 NAT 打洞（stcp/xtcp）场景需要；普通 tcp 隧道可关闭")
-o.default = "0"
-
-o = s:option(Value, "store_path", "存储路径", "[store] path；使用 /var 下的 tmpfs，重启自动清空不写 flash")
-o.default = "/var/etc/frpc/frpc_store.json"
-o:depends("store_enable", "1")
-
 -- ==================== 客户端面板 ====================
 s = m:section(NamedSection, "common", "common", "客户端面板")
 s.addremove = false
@@ -161,9 +170,26 @@ o = s:option(Flag, "web_pprof_enable", "启用 pprof", "webServer.pprofEnable，
 o.default = "0"
 o:depends("web_enable", "1")
 
+-- ==================== 状态存储 ====================
+s = m:section(NamedSection, "common", "common", "状态存储")
+s.addremove = false
+s.anonymous = false
+
+o = s:option(Flag, "store_enable", "启用状态存储", "仅 NAT 打洞（stcp/xtcp）场景需要；普通 tcp 隧道可关闭")
+o.default = "0"
+
+o = s:option(Value, "store_path", "存储路径", "[store] path；使用 /var 下的 tmpfs，重启自动清空不写 flash")
+o.default = "/var/etc/frpc/frpc_store.json"
+o:depends("store_enable", "1")
+
 -- ==================== 隧道规则（proxies） ====================
 s = m:section(TypedSection, "proxy", "隧道规则",
-	"每条规则生成一个 <code>[[proxies]]</code>；点击「添加」可新建多条。")
+	"每条规则生成一段 <code>[[proxies]]</code>。<br />" ..
+	"<b>TCP / UDP</b>：填本地 IP、本地端口、远端端口（远端端口须在白名单内）。<br />" ..
+	"<b>HTTP / HTTPS</b>：填本地 IP、本地端口 + 自定义域名（主域名/子域名可选）。<br />" ..
+	"<b>STCP / XTCP</b>：填本地 IP、本地端口 + 密钥；访问端在下方「访问端配置」添加。<br />" ..
+	"<b>加密 / 压缩</b>：单条隧道的独立开关，留默认则由全局设置决定。<br />" ..
+	"鼠标悬停列名可看字段含义；列较多时可左右滚动表格。")
 s.template = "cbi/tblsection"
 s.anonymous = false
 s.addremove = true
@@ -188,7 +214,7 @@ o:value("xtcp", "XTCP")
 o.default = "tcp"
 o.rmempty = false
 
-o = s:option(Value, "local_ip", "本地 IP", "stcp / xtcp 为被访问端要暴露的本地服务地址")
+o = s:option(Value, "local_ip", "本地 IP")
 o.default = "127.0.0.1"
 o:depends("type", "tcp")
 o:depends("type", "udp")
@@ -207,41 +233,43 @@ o:depends("type", "https")
 o:depends("type", "stcp")
 o:depends("type", "xtcp")
 
-o = s:option(Value, "remote_port", "远端端口", "须在上方「远端端口白名单」内，否则会被跳过")
+o = s:option(Value, "remote_port", "远端端口")
 o.datatype = "port"
 o:depends("type", "tcp")
 o:depends("type", "udp")
 
-o = s:option(Value, "custom_domains", "自定义域名", "HTTP / HTTPS 使用，多个用逗号分隔")
+o = s:option(Value, "custom_domains", "自定义域名")
 o:depends("type", "http")
 o:depends("type", "https")
 
-o = s:option(Value, "domain", "主域名", "HTTP / HTTPS 可选")
+o = s:option(Value, "domain", "主域名")
 o:depends("type", "http")
 o:depends("type", "https")
 
-o = s:option(Value, "subdomain", "子域名", "HTTP / HTTPS 可选")
+o = s:option(Value, "subdomain", "子域名")
 o:depends("type", "http")
 o:depends("type", "https")
 
-o = s:option(Value, "secret_key", "密钥", "stcp/xtcp 的 secretKey，两端必须一致")
+o = s:option(Value, "secret_key", "密钥")
 o.password = true
 o:depends("type", "stcp")
 o:depends("type", "xtcp")
 
-o = s:option(Value, "allow_users", "允许的访问者", "可选，多个用户用逗号分隔，对应 allowUsers")
+o = s:option(Value, "allow_users", "允许的访问者")
 o:depends("type", "stcp")
 o:depends("type", "xtcp")
 
-o = s:option(Flag, "use_encryption", "加密", "单独为该隧道开启")
+o = s:option(Flag, "use_encryption", "加密")
 o.default = "0"
 
-o = s:option(Flag, "use_compression", "压缩", "单独为该隧道开启")
+o = s:option(Flag, "use_compression", "压缩")
 o.default = "0"
 
 -- ==================== 访问端（visitors） ====================
 s = m:section(TypedSection, "visitor", "访问端配置 (visitors)",
-	"stcp/xtcp 的访问端单独生成 <code>[[visitors]]</code>；serverName 填对端 proxy 的名称。")
+	"stcp/xtcp 的访问端单独生成 <code>[[visitors]]</code>。<br />" ..
+	"<b>对端名称</b>填被访问端 proxy 的 name；<b>密钥</b>须与对端 proxy 一致。<br />" ..
+	"本地监听地址建议 127.0.0.1，本地监听端口为本机用来访问对端服务的端口。")
 s.template = "cbi/tblsection"
 s.anonymous = false
 s.addremove = true
@@ -252,7 +280,7 @@ o.default = "1"
 o.rmempty = false
 o.width = "6%"
 
-o = s:option(Value, "name", "名称", "本访问端的唯一名称")
+o = s:option(Value, "name", "名称")
 o.rmempty = false
 
 o = s:option(ListValue, "type", "类型")
@@ -261,16 +289,16 @@ o:value("xtcp", "XTCP")
 o.default = "stcp"
 o.rmempty = false
 
-o = s:option(Value, "server_name", "对端名称", "serverName：对端 proxy 的 name")
+o = s:option(Value, "server_name", "对端名称")
 o.rmempty = false
 
-o = s:option(Value, "secret_key", "密钥", "secretKey：须与对端 proxy 一致")
+o = s:option(Value, "secret_key", "密钥")
 o.password = true
 
-o = s:option(Value, "bind_addr", "本地监听地址", "bindAddr")
+o = s:option(Value, "bind_addr", "本地监听地址")
 o.default = "127.0.0.1"
 
-o = s:option(Value, "bind_port", "本地监听端口", "bindPort")
+o = s:option(Value, "bind_port", "本地监听端口")
 o.datatype = "port"
 
 return m
