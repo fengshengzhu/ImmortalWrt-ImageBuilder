@@ -29,7 +29,7 @@
 			<input type="button" class="btn" value="<%:停止%>" onclick="frpcControl('stop')" />
 			<input type="button" class="btn" value="<%:重启%>" onclick="frpcControl('restart')" />
 			<input type="button" class="btn" value="<%:刷新%>" onclick="frpcRefresh()" />
-			<span id="frpc_msg" style="margin-left:8px;color:#444"></span>
+			<span id="frpc_msg" style="margin-left:8px;font-weight:500"></span>
 		</p>
 	</fieldset>
 
@@ -111,8 +111,16 @@ function frpcRefresh() {
 }
 
 function frpcControl(cmd) {
+	frpcText('frpc_msg', '<%:正在执行%> ' + cmd + ' ...');
 	XHR.get(frpcBase + '/control', { cmd: cmd }, function(x, data) {
-		frpcText('frpc_msg', data && data.msg ? data.msg : '');
+		var msg = document.getElementById('frpc_msg');
+		var ok  = data && data.ok;
+		var text = (data && data.msg) ? data.msg
+			: '<%:请求失败%>（HTTP ' + (x && x.status ? x.status : '?') + '，请确认已登录）';
+		frpcText('frpc_msg', text);
+		if (msg) {
+			msg.style.color = ok ? '#137333' : '#c5221f';
+		}
 		frpcRefresh();
 	});
 }

@@ -3,7 +3,10 @@ module("luci.controller.frpc", package.seeall)
 local CONFIG = "frpc"
 
 function index()
-	-- 不因配置文件缺失而隐藏菜单，便于首次进入页面时排查问题
+	if not nixio.fs.access("/etc/config/" .. CONFIG) then
+		return
+	end
+
 	local e = entry({"admin", "services", "frpc"}, firstchild(), _("FRP 内网穿透"), 60)
 	e.dependent = false
 
@@ -84,18 +87,23 @@ function action_status_json()
 end
 
 function action_control()
+	-- 每个 CGI 请求是独立进程，必须自行 require；只依赖 status_json 里
+	-- 的 require 会在此处得到 nil（luci.sys is nil），接口返回 500，前端“没反应”。
+	local sys = require "luci.sys"
 	local cmd = luci.http.formvalue("cmd")
-	local ok, msg = false, _("未知操作")
+	local ok, msg, rc = false, _("未知操作"), nil
 
 	if cmd == "start" or cmd == "stop" or cmd == "restart" then
-		ok = (luci.sys.call("/etc/init.d/frpc " .. cmd .. " >/dev/null 2>&1") == 0)
+		rc = sys.call("/etc/init.d/frpc " .. cmd .. " >/dev/null 2>&1")
+		-- Lua 5.1 的 os.execute 返回退出码(0=成功)，部分实现返回布尔 true
+		ok = (rc == 0 or rc == true)
 		if ok then
 			msg = _("操作成功")
 		else
-			msg = _("操作失败，请查看系统日志")
+			msg = _("操作失败，请查看系统日志") .. " (rc=" .. tostring(rc) .. ")"
 		end
 	end
 
 	luci.http.prepare_content("application/json")
-	luci.http.write_json({ ok = ok, msg = msg })
+	luci.http.write_json({ ok = ok, msg = msg, cmd = cmd, rc = rc })
 end
