@@ -1,48 +1,42 @@
-<%+header%>
+<fieldset class="cbi-section">
+	<legend><%:概览%></legend>
+	<table width="100%" cellspacing="8">
+		<tr>
+			<td width="22%"><%:运行状态%></td>
+			<td><span id="frpc_status">-</span></td>
+		</tr>
+		<tr>
+			<td><%:服务端%></td>
+			<td><span id="frpc_server">-</span></td>
+		</tr>
+		<tr>
+			<td><%:TLS / 鉴权范围%></td>
+			<td><span id="frpc_auth">-</span></td>
+		</tr>
+		<tr>
+			<td><%:生效隧道 / 访问端%></td>
+			<td><span id="frpc_counts">-</span> <small id="frpc_skip" style="color:#BA7517"></small></td>
+		</tr>
+	</table>
+	<div id="frpc_conn_warn" style="display:none; margin-top:12px; padding:8px 10px; background:#FAEEDA; border:1px solid #EF9F27; color:#633806; border-radius:4px"></div>
+	<p style="margin-top:12px">
+		<input type="button" class="btn" value="<%:启动%>" onclick="frpcControl('start')" />
+		<input type="button" class="btn" value="<%:停止%>" onclick="frpcControl('stop')" />
+		<input type="button" class="btn" value="<%:重启%>" onclick="frpcControl('restart')" />
+		<input type="button" class="btn" value="<%:刷新%>" onclick="frpcRefresh()" />
+		<span id="frpc_msg" style="margin-left:8px;font-weight:500"></span>
+	</p>
+</fieldset>
 
-<div class="cbi-map">
-	<h2 name="content"><%:FRP 运行状态%></h2>
+<fieldset class="cbi-section">
+	<legend><%:生成的 TOML 配置%> <small>(/var/etc/frpc/frpc.toml，密钥已脱敏)</small></legend>
+	<pre id="frpc_config" style="white-space:pre-wrap;word-break:break-all;font-family:monospace;margin:0">-</pre>
+</fieldset>
 
-	<fieldset class="cbi-section">
-		<legend><%:概览%></legend>
-		<table width="100%" cellspacing="8">
-			<tr>
-				<td width="22%"><%:运行状态%></td>
-				<td><span id="frpc_status">-</span></td>
-			</tr>
-			<tr>
-				<td><%:服务端%></td>
-				<td><span id="frpc_server">-</span></td>
-			</tr>
-			<tr>
-				<td><%:TLS / 鉴权范围%></td>
-				<td><span id="frpc_auth">-</span></td>
-			</tr>
-			<tr>
-				<td><%:生效隧道 / 访问端%></td>
-				<td><span id="frpc_counts">-</span> <small id="frpc_skip" style="color:#BA7517"></small></td>
-			</tr>
-		</table>
-		<div id="frpc_conn_warn" style="display:none; margin-top:12px; padding:8px 10px; background:#FAEEDA; border:1px solid #EF9F27; color:#633806; border-radius:4px"></div>
-		<p style="margin-top:12px">
-			<input type="button" class="btn" value="<%:启动%>" onclick="frpcControl('start')" />
-			<input type="button" class="btn" value="<%:停止%>" onclick="frpcControl('stop')" />
-			<input type="button" class="btn" value="<%:重启%>" onclick="frpcControl('restart')" />
-			<input type="button" class="btn" value="<%:刷新%>" onclick="frpcRefresh()" />
-			<span id="frpc_msg" style="margin-left:8px;font-weight:500"></span>
-		</p>
-	</fieldset>
-
-	<fieldset class="cbi-section">
-		<legend><%:生成的 TOML 配置%> <small>(/var/etc/frpc/frpc.toml，密钥已脱敏)</small></legend>
-		<pre id="frpc_config" style="white-space:pre-wrap;word-break:break-all;font-family:monospace;margin:0">-</pre>
-	</fieldset>
-
-	<fieldset class="cbi-section">
-		<legend><%:最近日志%></legend>
-		<pre id="frpc_log" style="white-space:pre-wrap;word-break:break-all;font-family:monospace;max-height:260px;overflow:auto;margin:0">-</pre>
-	</fieldset>
-</div>
+<fieldset class="cbi-section">
+	<legend><%:最近日志%></legend>
+	<pre id="frpc_log" style="white-space:pre-wrap;word-break:break-all;font-family:monospace;max-height:260px;overflow:auto;margin:0">-</pre>
+</fieldset>
 
 <script type="text/javascript">
 //<![CDATA[
@@ -105,7 +99,7 @@ function frpcRefresh() {
 				: '';
 		}
 
-		frpcText('frpc_config', data.config || '<%:尚未生成配置，请先到「参数设置」填写服务端地址%>');
+		frpcText('frpc_config', data.config || '<%:尚未生成配置，请先在上方配置并保存服务端地址%>');
 		frpcText('frpc_log', data.log || '<%:暂无日志%>');
 	});
 }
@@ -129,5 +123,3 @@ frpcRefresh();
 setInterval(frpcRefresh, 15000);
 //]]>
 </script>
-
-<%+footer%>
