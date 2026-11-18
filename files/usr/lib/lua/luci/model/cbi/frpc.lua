@@ -1,29 +1,83 @@
 local m, s, o
 
--- 布局样式注入在 Map 描述中（LuCI 不过滤描述 HTML），不改动官方 CBI 模板，
--- 因此保存 / 应用等逻辑完全保持原生行为。
+-- 分页标签：把每个配置区块渲染成 LuCI 原生风格的 Tab（与页面顶部
+-- “参数设置 / 运行状态”一致），一次只显示一页。样式与脚本只注入在 Map
+-- 描述中，不改动官方 CBI 模板，因此保存 / 应用逻辑完全保持原生。
 local layout = [[
 <style type="text/css">
-/* 基础配置区两栏；状态存储 / 两个表格 / 操作栏整行 */
-#cbi-frpc { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; align-items:start; }
-#cbi-frpc>h2, #cbi-frpc>.cbi-map-descr, #cbi-frpc>.cbi-page-actions,
-#cbi-frpc>fieldset.cbi-section:nth-of-type(n+5),
-#cbi-frpc>fieldset:has(table.cbi-section-table) { grid-column:1/-1; }
-#cbi-frpc>fieldset.cbi-section { margin-bottom:0; overflow-x:auto; }
-@media(max-width:1024px){ #cbi-frpc{ grid-template-columns:1fr; } }
-/* 表格：列头不换行，窄屏靠 fieldset 横向滚动，列不被压扁 */
+#cbi-frpc>fieldset.cbi-section { overflow-x:auto; }
 #cbi-frpc table.cbi-section-table { width:100%; min-width:900px; }
 #cbi-frpc table.cbi-section-table th { white-space:nowrap; vertical-align:top; }
 #cbi-frpc table.cbi-section-table td input[type=text],
 #cbi-frpc table.cbi-section-table td select { min-width:76px; }
+#frpc-tabs { margin:10px 0 0; }
 </style>
+<script type="text/javascript">
+(function() {
+	function frpcTabsInit() {
+		var map = document.getElementById('cbi-frpc');
+		if (!map) return;
+		var sections = [], kids = map.children, i;
+		for (i = 0; i < kids.length; i++)
+			if (kids[i].tagName === 'FIELDSET' && (' ' + kids[i].className + ' ').indexOf(' cbi-section ') >= 0)
+				sections.push(kids[i]);
+		if (sections.length < 2) return;
+
+		var ul = document.createElement('ul');
+		ul.className = 'tabs';
+		ul.id = 'frpc-tabs';
+		var items = [];
+		for (i = 0; i < sections.length; i++) {
+			var lg = sections[i].getElementsByTagName('legend')[0];
+			var name = lg ? lg.innerHTML.replace(/<[^>]*>/g, '').replace(/^\s+|\s+$/g, '') : ('区块 ' + (i + 1));
+			var li = document.createElement('li');
+			var a = document.createElement('a');
+			a.href = 'javascript:;';
+			a.appendChild(document.createTextNode(name));
+			li.appendChild(a);
+			ul.appendChild(li);
+			items.push(li);
+		}
+		map.insertBefore(ul, sections[0]);
+		var clear = document.createElement('div');
+		clear.style.clear = 'both';
+		map.insertBefore(clear, sections[0]);
+
+		var initial = 0;
+		var m = /#frpc-tab-(\d+)/.exec(window.location.hash);
+		if (m && parseInt(m[1], 10) < sections.length) initial = parseInt(m[1], 10);
+
+		function select(n) {
+			for (var j = 0; j < sections.length; j++) {
+				sections[j].style.display = (j === n) ? '' : 'none';
+				items[j].className = (j === n) ? 'active' : '';
+			}
+			if (window.history && window.history.replaceState)
+				window.history.replaceState(null, '', '#frpc-tab-' + n);
+		}
+		for (i = 0; i < items.length; i++) {
+			(function(n) {
+				items[n].getElementsByTagName('a')[0].onclick = function(e) {
+					e.preventDefault();
+					select(n);
+				};
+			})(i);
+		}
+		select(initial);
+	}
+	if (document.readyState === 'loading')
+		document.addEventListener('DOMContentLoaded', frpcTabsInit);
+	else
+		frpcTabsInit();
+})();
+</script>
 ]]
 
 m = Map("frpc", "FRP 内网穿透 - 参数设置",
 	layout ..
 	"字段以生产 <code>frpc.toml</code> / <code>frps.toml</code> 为基准（frp 0.72.x）。<br />" ..
 	"服务端端口、Token、<code>additionalScopes</code>、TLS 须与 frps 一致，否则连接会被拒绝。<br />" ..
-	"基础配置分两栏显示；各表格字段说明见表格上方，列较多时可横向滚动。")
+	"下方标签页分类切换；表格字段说明见各页顶部，列较多时可横向滚动。")
 
 -- ==================== 服务器与认证 ====================
 s = m:section(NamedSection, "common", "common", "服务器与认证")
