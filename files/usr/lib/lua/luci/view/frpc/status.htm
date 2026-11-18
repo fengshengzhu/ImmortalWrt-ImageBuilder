@@ -19,10 +19,11 @@
 				<td><span id="frpc_auth">-</span></td>
 			</tr>
 			<tr>
-				<td><%:已启用隧道 / 访问端%></td>
-				<td><span id="frpc_counts">-</span></td>
+				<td><%:生效隧道 / 访问端%></td>
+				<td><span id="frpc_counts">-</span> <small id="frpc_skip" style="color:#BA7517"></small></td>
 			</tr>
 		</table>
+		<div id="frpc_conn_warn" style="display:none; margin-top:12px; padding:8px 10px; background:#FAEEDA; border:1px solid #EF9F27; color:#633806; border-radius:4px"></div>
 		<p style="margin-top:12px">
 			<input type="button" class="btn" value="<%:启动%>" onclick="frpcControl('start')" />
 			<input type="button" class="btn" value="<%:停止%>" onclick="frpcControl('stop')" />
@@ -33,7 +34,7 @@
 	</fieldset>
 
 	<fieldset class="cbi-section">
-		<legend><%:生成的 TOML 配置%> <small>(/var/etc/frpc/frpc.toml)</small></legend>
+		<legend><%:生成的 TOML 配置%> <small>(/var/etc/frpc/frpc.toml，密钥已脱敏)</small></legend>
 		<pre id="frpc_config" style="white-space:pre-wrap;word-break:break-all;font-family:monospace;margin:0">-</pre>
 	</fieldset>
 
@@ -58,18 +59,54 @@ function frpcRefresh() {
 			frpcText('frpc_status', '<%:请求失败%>');
 			return;
 		}
+
+		var errs = data.conn_errors || [];
+		var warn = document.getElementById('frpc_conn_warn');
+		if (warn) {
+			if (errs.length > 0) {
+				warn.textContent = '';
+				var b = document.createElement('b');
+				b.textContent = '<%:连接异常%>（最近日志）：';
+				warn.appendChild(b);
+				var recent = errs.slice(-3);
+				for (var i = 0; i < recent.length; i++) {
+					warn.appendChild(document.createElement('br'));
+					warn.appendChild(document.createTextNode(recent[i]));
+				}
+				warn.style.display = 'block';
+			} else {
+				warn.style.display = 'none';
+				warn.textContent = '';
+			}
+		}
+
 		var el = document.getElementById('frpc_status');
 		if (el) {
-			el.innerHTML = data.running
-				? '<b style="color:#137333"><%:运行中%></b>'
-				: '<b style="color:#c5221f"><%:未运行%></b>';
+			if (!data.running) {
+				el.innerHTML = '<b style="color:#c5221f"><%:未运行%></b>';
+			} else if (errs.length > 0) {
+				el.innerHTML = '<b style="color:#BA7517"><%:进程运行中 · 连接异常%></b>';
+			} else {
+				el.innerHTML = '<b style="color:#137333"><%:运行中%></b>';
+			}
 		}
-		frpcText('frpc_server',  data.server  || '-');
+
+		frpcText('frpc_server', data.server || '-');
 		var tls = (data.tls === '1') ? '<%:开启%>' : '<%:关闭%>';
-		frpcText('frpc_auth',    tls + ' / ' + (data.scopes || '-'));
-		frpcText('frpc_counts',  (data.proxies || 0) + ' / ' + (data.visitors || 0));
-		frpcText('frpc_config',  data.config || '<%:尚未生成配置，请先到「参数设置」填写服务端地址%>');
-		frpcText('frpc_log',     data.log    || '<%:暂无日志%>');
+		frpcText('frpc_auth', tls + ' / ' + (data.scopes || '-'));
+
+		var actual = data.proxies || 0;
+		var uciN   = data.uci_proxies || 0;
+		frpcText('frpc_counts', actual + ' / ' + (data.visitors || 0));
+		var skip = document.getElementById('frpc_skip');
+		if (skip) {
+			skip.textContent = (uciN > actual)
+				? '（' + (uciN - actual) + ' <%:条被跳过：远端端口不在白名单%>）'
+				: '';
+		}
+
+		frpcText('frpc_config', data.config || '<%:尚未生成配置，请先到「参数设置」填写服务端地址%>');
+		frpcText('frpc_log', data.log || '<%:暂无日志%>');
 	});
 }
 

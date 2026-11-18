@@ -27,30 +27,49 @@ function action_status_json()
 	data.tls      = uci:get(CONFIG, "common", "tls_enable") or "0"
 	data.scopes   = uci:get(CONFIG, "common", "auth_additional_scopes") or ""
 
-	local enabled_proxies = 0
-	uci:foreach(CONFIG, "proxy", function(s)
-		if s.enabled == "1" then
-			enabled_proxies = enabled_proxies + 1
-		end
-	end)
-	data.proxies = enabled_proxies
-
-	local enabled_visitors = 0
-	uci:foreach(CONFIG, "visitor", function(s)
-		if s.enabled == "1" then
-			enabled_visitors = enabled_visitors + 1
-		end
-	end)
-	data.visitors = enabled_visitors
-
+	-- 实际生成的 TOML 才能反映真实生效条数：remotePort 不在白名单的隧道
+	-- 会在生成阶段被跳过，直接数 UCI 会虚高，误导排查。
 	local f = io.open("/var/etc/frpc/frpc.toml", "r")
-	data.config = ""
+	local raw_config = ""
 	if f then
-		data.config = f:read("*a") or ""
+		raw_config = f:read("*a") or ""
 		f:close()
 	end
 
+	local function count_sections(text, pattern)
+		local n = 0
+		for _ in text:gmatch(pattern) do n = n + 1 end
+		return n
+	end
+	data.proxies  = count_sections(raw_config, "%[%[proxies%]%]")
+	data.visitors = count_sections(raw_config, "%[%[visitors%]%]")
+
+	local uci_proxies = 0
+	uci:foreach(CONFIG, "proxy", function(s)
+		if s.enabled == "1" then uci_proxies = uci_proxies + 1 end
+	end)
+	data.uci_proxies = uci_proxies
+
 	data.log = sys.exec("logread 2>/dev/null | grep -i frpc | tail -n 30") or ""
+
+	-- pidof 只能说明进程活着；token/TLS 不匹配时进程仍在，需把连接错误显式暴露
+	data.conn_errors = {}
+	for line in (data.log .. "\n"):gmatch("([^\n]+)\n") do
+		local lc = line:lower()
+		if lc:find("authentication failed", 1, true)
+			or lc:find("login to server failed", 1, true)
+			or lc:find("connection refused", 1, true)
+			or (lc:find("token", 1, true) and lc:find("mismatch", 1, true))
+			or lc:find("tls handshake", 1, true) then
+			data.conn_errors[#data.conn_errors + 1] = line
+		end
+	end
+
+	-- 展示用 TOML 必须对密钥脱敏，页面只读也不该明文摊开 auth.token / web password
+	data.config = raw_config
+	data.config = data.config:gsub("(auth%.token%s*=%s*\")[^\"]*(\")", "%1******%2")
+	data.config = data.config:gsub("(webServer%.password%s*=%s*\")[^\"]*(\")", "%1******%2")
+	data.config = data.config:gsub("(secretKey%s*=%s*\")[^\"]*(\")", "%1******%2")
 
 	luci.http.prepare_content("application/json")
 	luci.http.write_json(data)

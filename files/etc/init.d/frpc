@@ -103,7 +103,7 @@ write_proxy() {
 	local section="$1"
 	local enabled name type local_ip local_port remote_port
 	local custom_domains domain subdomain use_encryption use_compression
-	local role secret_key allow_users
+	local secret_key allow_users
 
 	config_get enabled "$section" enabled 1
 	[ "$enabled" = "1" ] || return 0
@@ -127,7 +127,6 @@ write_proxy() {
 	config_get subdomain "$section" subdomain ""
 	config_get use_encryption "$section" use_encryption 0
 	config_get use_compression "$section" use_compression 0
-	config_get role "$section" role "server"
 	config_get secret_key "$section" secret_key ""
 	config_get allow_users "$section" allow_users ""
 
@@ -149,8 +148,10 @@ write_proxy() {
 				toml_str "subdomain" "$subdomain"
 				;;
 			stcp|xtcp)
-				# 本客户端作为被访问端：role=server，配合 secretKey 与可选的 allowUsers
-				toml_str "role" "$role"
+				# 被访问端：暴露本地服务，配合 secretKey 与可选的 allowUsers。
+				# 访问端请用 [[visitors]]；frp 0.72 的 [[proxies]] 无 role 字段。
+				toml_str "localIP" "$local_ip"
+				[ -n "$local_port" ] && toml_int "localPort" "$local_port" 0
 				toml_str "secretKey" "$secret_key"
 				toml_list_line "allowUsers" "$allow_users"
 				;;
@@ -241,7 +242,7 @@ generate_toml() {
 	config_get store_path common store_path "${STORE_DIR}/frpc_store.json"
 
 	config_get web_enable common web_enable 0
-	config_get web_addr common web_addr "0.0.0.0"
+	config_get web_addr common web_addr "127.0.0.1"
 	config_get web_port common web_port 7400
 	config_get web_user common web_user ""
 	config_get web_password common web_password ""

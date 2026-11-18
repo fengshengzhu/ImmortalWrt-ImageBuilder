@@ -141,8 +141,8 @@ s.anonymous = false
 o = s:option(Flag, "web_enable", "启用客户端面板", "开启 frpc 自带 webServer；默认关闭以减少路由器攻击面")
 o.default = "0"
 
-o = s:option(Value, "web_addr", "面板监听地址", "建议仅本地回环 127.0.0.1，避免对公网暴露")
-o.default = "0.0.0.0"
+o = s:option(Value, "web_addr", "面板监听地址", "仅本地回环，避免对公网暴露；如需 LAN 内访问请手动改为局域网 IP")
+o.default = "127.0.0.1"
 o:depends("web_enable", "1")
 
 o = s:option(Value, "web_port", "面板端口")
@@ -188,12 +188,14 @@ o:value("xtcp", "XTCP")
 o.default = "tcp"
 o.rmempty = false
 
-o = s:option(Value, "local_ip", "本地 IP")
+o = s:option(Value, "local_ip", "本地 IP", "stcp / xtcp 为被访问端要暴露的本地服务地址")
 o.default = "127.0.0.1"
 o:depends("type", "tcp")
 o:depends("type", "udp")
 o:depends("type", "http")
 o:depends("type", "https")
+o:depends("type", "stcp")
+o:depends("type", "xtcp")
 
 o = s:option(Value, "local_port", "本地端口")
 o.datatype = "port"
@@ -202,6 +204,8 @@ o:depends("type", "tcp")
 o:depends("type", "udp")
 o:depends("type", "http")
 o:depends("type", "https")
+o:depends("type", "stcp")
+o:depends("type", "xtcp")
 
 o = s:option(Value, "remote_port", "远端端口", "须在上方「远端端口白名单」内，否则会被跳过")
 o.datatype = "port"
@@ -219,13 +223,6 @@ o:depends("type", "https")
 o = s:option(Value, "subdomain", "子域名", "HTTP / HTTPS 可选")
 o:depends("type", "http")
 o:depends("type", "https")
-
-o = s:option(ListValue, "role", "角色", "stcp/xtcp：本客户端作被访问端时选 server")
-o:value("server", "server（被访问端）")
-o:value("visitor", "visitor（访问端，见下方访问端配置）")
-o.default = "server"
-o:depends("type", "stcp")
-o:depends("type", "xtcp")
 
 o = s:option(Value, "secret_key", "密钥", "stcp/xtcp 的 secretKey，两端必须一致")
 o.password = true
