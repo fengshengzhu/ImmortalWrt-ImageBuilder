@@ -83,19 +83,21 @@ function action_control()
 	-- 的 require 会在此处得到 nil（luci.sys is nil），接口返回 500，前端“没反应”。
 	local sys = require "luci.sys"
 	local cmd = luci.http.formvalue("cmd")
-	local ok, msg, rc = false, _("未知操作"), nil
+	-- 注意：本固件 dispatcher 走 ucode 桥接，call() 入口的函数环境里没有 _()
+	-- 翻译全局（status_json 不用它所以正常）。此处一律用中文常量，避免 500。
+	local ok, msg, rc = false, "未知操作", nil
 
 	if cmd == "start" or cmd == "stop" or cmd == "restart" then
 		rc = sys.call("/etc/init.d/frpc " .. cmd .. " >/dev/null 2>&1")
 		-- Lua 5.1 的 os.execute 返回退出码(0=成功)，部分实现返回布尔 true
 		ok = (rc == 0 or rc == true)
 		if ok then
-			msg = _("操作成功")
+			msg = "操作成功"
 		else
-			msg = _("操作失败，请查看系统日志") .. " (rc=" .. tostring(rc) .. ")"
+			msg = "操作失败，请查看系统日志 (rc=" .. tostring(rc) .. ")"
 		end
 	end
 
 	luci.http.prepare_content("application/json")
-	luci.http.write_json({ ok = ok, msg = msg, cmd = cmd, rc = rc })
+	luci.http.write_json({ ok = ok, msg = msg, cmd = cmd, rc = tostring(rc) })
 end
