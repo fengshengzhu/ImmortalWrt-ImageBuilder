@@ -29,10 +29,11 @@ function action_status_json()
 	local addr    = uci:get(CONFIG, "common", "server_addr") or ""
 	local port    = uci:get(CONFIG, "common", "server_port") or ""
 	data.server   = (addr ~= "" and port ~= "") and (addr .. ":" .. port) or addr
-	-- UCI 未显式设置时按默认开启（与 frpc.config、init 的 config_get 默认值 1 对齐），
-	-- 否则老配置缺字段会让概览误显示「关闭」，而实际生成的 TOML 是 true。
-	data.tls      = uci:get(CONFIG, "common", "tls_enable") or "1"
 	data.scopes   = uci:get(CONFIG, "common", "auth_additional_scopes") or ""
+	-- TLS 状态以「实际生成的 TOML」为准，而不是猜 UCI 值：
+	-- frpc 真正加载的是 TOML，老配置缺 tls_enable 字段时 init 会用默认值生成 true，
+	-- 若此处读 UCI 就会误显示关闭。只有 TOML 尚未生成（服务未启动过）时才回退 UCI。
+	data.tls = nil
 
 	-- 实际生成的 TOML 才能反映真实生效条数：remotePort 不在白名单的隧道
 	-- 会在生成阶段被跳过，直接数 UCI 会虚高，误导排查。
@@ -41,6 +42,23 @@ function action_status_json()
 	if f then
 		raw_config = f:read("*a") or ""
 		f:close()
+	end
+
+	-- 从生成的 TOML 解析 transport.tls.enable（toml_bool 输出 `key = true/false`）。
+	-- 逐行扫描并用 ^ 锚定行首，确保被注释掉的行（# transport.tls.enable = ...）不会被误读。
+	if raw_config ~= "" then
+		for line in raw_config:gmatch("([^\n]+)") do
+			local v = line:match("^[ \t]*transport%.tls%.enable[ \t]*=[ \t]*(%a+)")
+			if v then
+				if v == "true" then data.tls = "1"
+				elseif v == "false" then data.tls = "0" end
+				break
+			end
+		end
+	end
+	-- TOML 还没生成过（服务从未启动）时，回退到 UCI 值，默认开启。
+	if not data.tls then
+		data.tls = uci:get(CONFIG, "common", "tls_enable") or "1"
 	end
 
 	local function count_sections(text, pattern)
