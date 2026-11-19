@@ -57,12 +57,20 @@ function action_status_json()
 
 	data.log = sys.exec("logread 2>/dev/null | grep -i frpc | tail -n 30") or ""
 
-	-- pidof 只能说明进程活着；token/TLS 不匹配时进程仍在，需把连接错误显式暴露
+	-- pidof 只能说明进程活着；token/TLS 不匹配时进程仍在，需把连接错误显式暴露。
+	-- 关键：log 是跨天累积的（tail -n 30），旧失败记录不能代表当前状态。
+	-- 按日志时间顺序扫描：每遇到一次连接成功就把此前累积的错误清空，
+	-- 最终只剩「最后一次成功之后仍出现」的错误才算真正的连接异常。
 	data.conn_errors = {}
 	for line in (data.log .. "\n"):gmatch("([^\n]+)\n") do
 		local lc = line:lower()
-		if lc:find("authentication failed", 1, true)
+		-- frp 0.72 成功登录标志：login to server success, get run id [...]
+		if lc:find("login to server success", 1, true)
+			or lc:find("login to the server success", 1, true) then
+			data.conn_errors = {}
+		elseif lc:find("authentication failed", 1, true)
 			or lc:find("login to server failed", 1, true)
+			or lc:find("login to the server failed", 1, true)
 			or lc:find("connection refused", 1, true)
 			or (lc:find("token", 1, true) and lc:find("mismatch", 1, true))
 			or lc:find("tls handshake", 1, true) then
