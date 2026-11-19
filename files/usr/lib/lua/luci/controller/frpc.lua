@@ -29,7 +29,9 @@ function action_status_json()
 	local addr    = uci:get(CONFIG, "common", "server_addr") or ""
 	local port    = uci:get(CONFIG, "common", "server_port") or ""
 	data.server   = (addr ~= "" and port ~= "") and (addr .. ":" .. port) or addr
-	data.tls      = uci:get(CONFIG, "common", "tls_enable") or "0"
+	-- UCI 未显式设置时按默认开启（与 frpc.config、init 的 config_get 默认值 1 对齐），
+	-- 否则老配置缺字段会让概览误显示「关闭」，而实际生成的 TOML 是 true。
+	data.tls      = uci:get(CONFIG, "common", "tls_enable") or "1"
 	data.scopes   = uci:get(CONFIG, "common", "auth_additional_scopes") or ""
 
 	-- 实际生成的 TOML 才能反映真实生效条数：remotePort 不在白名单的隧道
